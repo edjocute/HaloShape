@@ -3,8 +3,8 @@
 #solid = True -> use ellipsoidal volume instead of shell
 
 import numpy as np
-import loadhalo
-#import snapshot
+#import loadhalo
+import snapshot
 import readhaloHDF5
 import ellipsoid
 import utils
@@ -21,10 +21,10 @@ def axial(cat,dir,snapnum,group,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False
         pos=readhaloHDF5.readhalo(dir+'output/', "snap", snapnum, "POS ",1,group,-1)
         pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
     elif not NR and useFOF:
-        pos=loadhalo.loadSnapSubset(dir,135,group,1,1,["Coordinates"]).get("Coordinates")
+        pos=snapshot.loadhalo(dir,135,group,1,["Coordinates"]).get("Coordinates")
         pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
-    else:
-        pos=loadhalo.loadSnapSubset(dir,135,subnum,0,1,["Coordinates"]).get("Coordinates")
+    else: #DEFAULT: not NR and use central subhalo only
+        pos=snapshot.loadSubhalo(dir,135,subnum,1,["Coordinates"]).get("Coordinates")
         pos=utils.image(cat.SubhaloPos[subnum],pos,75000)-cat.SubhaloPos[subnum]
     pos/=rvir
 
