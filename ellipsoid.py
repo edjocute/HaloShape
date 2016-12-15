@@ -9,7 +9,7 @@ import numexpr as ne
 import newdot
 #from scipy.linalg import blas as FP
 
-def ellipsoidfit(posold,rvir,rin,rout,weighted=False):
+def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
 
     ###Initialize values###
     pos=posold.copy()
@@ -18,6 +18,14 @@ def ellipsoidfit(posold,rvir,rin,rout,weighted=False):
     count=0
     exit=0
     axes=np.diag((1,1,1))
+
+    if mass.__class__== bool:
+        assert mass == False
+    elif mass.__class__ == np.ndarray:
+        assert len(posold) == len(mass)
+    else:
+        print 'Warning: mass array seems wrong!!'
+
     while (conv > 1e-2 and exit!=1): ##r=1e-3 is the convergence criterion###
         count+=1
 
@@ -27,25 +35,13 @@ def ellipsoidfit(posold,rvir,rin,rout,weighted=False):
         dist2 = ne.evaluate("p0**2 + (p1/q)**2 + (p2/s) **2")
         slice= ne.evaluate("(dist2>rin**2) & (dist2<rout**2)")
         posbin=pos[slice]
+
         if len(posbin)==0:
             print "no particles in bin"
             return -1.,-1.,0, np.zeros((3,3))
             exit=1
-        #print (len(posbin))
 
-
-## THIS IS SLOW! DONT USE THIS ##
-## USE NEW ROUTINE BELOW ##
-        #for k in np.arange(len(posbin)):
-            #a2=posbin[k,0]**2+ (posbin[k,1]/q)**2 + (posbin[k,2]/s)**2
-        #    for i in np.arange(3):
-        #        M[i,i]+=posbin[k,i]**2#/(a2)
-        #        for j in np.arange(i):
-        #            temp=posbin[k,i]*posbin[k,j]#/(a2)
-        #            M[i,j]+=temp
-        #            M[j,i]+=temp
-
-## Do we want to use weights? ##
+## Do we want to use a weighted shape tensor? ##
         if weighted:
             pb0,pb1,pb2 = posbin[:,0],posbin[:,1],posbin[:,2]
             a2 = ne.evaluate("pb0**2 + (pb1/q)**2 + (pb2/s) **2")
@@ -54,16 +50,26 @@ def ellipsoidfit(posold,rvir,rin,rout,weighted=False):
 
 ## Calculate inertia tensor
         M=np.zeros([3,3])
-        for i in np.arange(3):
-            pi=posbin[:,i]
-            M[i,i]+= ne.evaluate("sum(pi**2/a2)")
-            for j in np.arange(i):
-                pj=posbin[:,j]
-                temp= ne.evaluate("sum(pi* pj/a2)")
-                M[i,j]+=temp
-                M[j,i]+=temp
-        M*=rvir**2
-        M/=float(len(posbin))
+        if mass.__class__== bool:
+            for i in np.arange(3):
+                pi=posbin[:,i]
+                M[i,i]+= ne.evaluate("sum(pi**2/a2)")
+                for j in np.arange(i):
+                    pj=posbin[:,j]
+                    temp= ne.evaluate("sum(pi* pj/a2)")
+                    M[i,j]+=temp
+                    M[j,i]+=temp
+            M=M*rvir**2/len(posbin)
+        else:
+            for i in np.arange(3):
+                pi=posbin[:,i]
+                M[i,i]+= ne.evaluate("sum(massbin*pi**2/a2)")
+                for j in np.arange(i):
+                    pj=posbin[:,j]
+                    temp= ne.evaluate("sum(massbin* pi* pj/a2)")
+                    M[i,j]+=temp
+                    M[j,i]+=temp
+            M=M*rvir**2/ne.evaluate("sum(massbin)")
 
 ###Get eigenvalues and eigenvectors of M[i,j] and sort them from largest to smallest eigenvalue###
         eigval,eigvec=np.linalg.eig(M)      ## get eigenvalues and normalized eigenvectors

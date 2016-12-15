@@ -10,21 +10,27 @@ import ellipsoid
 import utils
 #import readhaloHDF5
 
-def axial(cat,dir,snapnum,group,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
+def axial(cat,catdir,snapnum,group,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
 
     subnum=cat.GroupFirstSub[group]
     rvir=cat.Group_R_Crit200[group]
+
+    if catdir.find('/output')<0:
+        snapdir=catdir+'/output/'
+    else:
+        snapdir=catdir
+
     if NR and not useFOF:
-        pos=readhaloHDF5.readhalo(dir+'output/', "snap", snapnum, "POS ",1,0,subnum)
+        pos=readhaloHDF5.readhalo(snapdir, "snap", snapnum, "POS ",1,0,subnum)
         pos=utils.image(cat.SubhaloPos[subnum],pos,75000)-cat.SubhaloPos[subnum]
     elif NR and useFOF:
-        pos=readhaloHDF5.readhalo(dir+'output/', "snap", snapnum, "POS ",1,group,-1)
+        pos=readhaloHDF5.readhalo(snapdir, "snap", snapnum, "POS ",1,group,-1)
         pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
     elif not NR and useFOF:
-        pos=snapshot.loadhalo(dir+"/output",135,group,1,["Coordinates"])
+        pos=snapshot.loadhalo(snapdir,snapnum,group,1,["Coordinates"])
         pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
     else: #DEFAULT: not NR and use cantral subhalo only
-        pos=snapshot.loadSubhalo(dir+"/output",135,subnum,1,["Coordinates"])
+        pos=snapshot.loadSubhalo(snapdir,snapnum,subnum,1,["Coordinates"])
         pos=utils.image(cat.SubhaloPos[subnum],pos,75000)-cat.SubhaloPos[subnum]
     pos/=rvir
 
