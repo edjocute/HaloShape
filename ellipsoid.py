@@ -35,6 +35,8 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
         dist2 = ne.evaluate("p0**2 + (p1/q)**2 + (p2/s) **2")
         slice= ne.evaluate("(dist2>rin**2) & (dist2<rout**2)")
         posbin=pos[slice]
+        if mass.__class__==np.ndarray:
+                massbin=mass[slice]
 
         if len(posbin)==0:
             print "no particles in bin"
@@ -130,3 +132,131 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
     #if count < 100:
     #    print "It took ", count, "iterations to converge"
     return q,s,len(posbin),axes
+
+def ellipsoidfit2D(posold,rvir,rin,rout,mass=False,weighted=False):
+
+    ###Initialize values###
+    ndims=2
+    pos=posold.copy()
+    q=1.
+    conv=10
+    count=0
+    exit=0
+    axes=np.diag((1,1))
+
+    if mass.__class__== bool:
+        assert mass == False
+    elif mass.__class__ == np.ndarray:
+        assert len(posold) == len(mass)
+    else:
+        print 'Warning: mass array seems wrong!!'
+
+    while (conv > 1e-2 and exit!=1): ##r=1e-3 is the convergence criterion###
+        count+=1
+
+        ### Restrict to particles of required radii
+        p0,p1 = pos[:,0],pos[:,1]
+        dist2 = ne.evaluate("p0**2 + (p1/q)**2")
+        slice= ne.evaluate("(dist2>rin**2) & (dist2<rout**2)")
+        posbin=pos[slice]
+        if mass.__class__==np.ndarray:
+                massbin=mass[slice]
+
+        if len(posbin)==0:
+            print "no particles in bin"
+            return -1.,0,np.zeros((2,2))
+            exit=1
+
+## Do we want to use a weighted shape tensor? ##
+        if weighted:
+            pb0,pb1 = posbin[:,0],posbin[:,1]
+            a2 = ne.evaluate("pb0**2 + (pb1/q)**2")
+        else:
+            a2 = 1
+
+## Calculate inertia tensor
+        M=np.zeros([ndims,ndims])
+        if mass.__class__== bool:
+            for i in np.arange(ndims):
+                pi=posbin[:,i]
+                M[i,i]+= ne.evaluate("sum(pi**2/a2)")
+                for j in np.arange(i):
+                    pj=posbin[:,j]
+                    temp= ne.evaluate("sum(pi* pj/a2)")
+                    M[i,j]+=temp
+                    M[j,i]+=temp
+            M=M*rvir**2/len(posbin)
+        else:
+            for i in np.arange(ndims):
+                pi=posbin[:,i]
+                M[i,i]+= ne.evaluate("sum(massbin*pi**2/a2)")
+                for j in np.arange(i):
+                    pj=posbin[:,j]
+                    temp= ne.evaluate("sum(massbin* pi* pj/a2)")
+                    M[i,j]+=temp
+                    M[j,i]+=temp
+            M=M*rvir**2/ne.evaluate("sum(massbin)")
+
+###Get eigenvalues and eigenvectors of M[i,j] and sort them from largest to smallest eigenvalue###
+        eigval,eigvec=np.linalg.eig(M)      ## get eigenvalues and normalized eigenvectors
+                                            ## The COLUMNs of eigvec are the principal axes according to numpy documentation
+
+        arg=np.argsort(eigval)[::-1]
+        newM=eigval[arg]                    ## sort eigenvalues from largest to smallest
+        rotmat=eigvec[:,arg]                ## sort the columns of the eigenvectors in the same mannor
+                                            ## The actual rotation matrix is the transpose of rotmat
+                                            ## Because the transformation should be I'= R I R.T
+
+        ## Check rotation matrix using similarity transformation
+        ## The convention here is M' = V.T M V
+        ## which should correspond to the eigenvalues on the diagonal
+        if not np.allclose( np.dot(rotmat.T,np.dot(M,rotmat)),np.diag(newM)):
+            #print "Difference : ",abs(np.dot(rotmat.T,np.dot(M,rotmat))-np.diag(newM))
+            print "Error in similarity transformation!!"
+            return -1.,len(posbin), np.zeros((ndims,ndims))
+            exit=1
+
+        if (newM < 1e-5).any():             ## Check that eigenvalues are not too small, else the next iteration can
+                                            ## return imaginary values
+            print 'eigenvalues too close to zero, stopping iteration'
+            return -1.,len(posbin), np.zeros((ndims,ndims))
+            exit=1
+
+        ## Now we can obtain q and s from the eigenvalues
+        q_new = np.sqrt(newM[1]/newM[0])
+
+        ## Rotate postions into principal ##
+        #pos=np.dot(pos,rotmat) #this step is slow and is equivalent to np.dot(rotmat,pos[i])
+        pos=newdot.dot(rotmat.T,pos.T).T    ## This is done using routine in scipy which is much faster
+                                            ## than the one in numpy.
+                                            ## We want x' = dot(V.T,x)
+
+        axes=np.dot(axes,rotmat)            ## We also carry the identity matrix so that we can obtain
+                                            ## the overall rotation from the original frame x
+                                            ## to the principal frame x'
+                                            ## The rows of rotmat give the original axes in the principal frame
+                                            ## The rows of axes give the final positions of the original axes in the principal frame
+                                            ## The columns of rotmat give the principal axes in the orignal frame
+                                            ## Don't mess this up!
+        conv = abs((q_new-q)/q)
+        q=q_new
+
+        ###Other checks###
+        if (count == 100):
+            print 'Not converging at rin,rout = ',rin,rout, 'with', len(posbin),'in bin'
+            exit=1
+        if (q>1):
+            print "q greater than 1!"
+            exit=1
+            print "lenbin = ",len(posbin)
+    #if not np.allclose(newdot.dot(axes.T,posold.T).T,pos):
+    if not np.allclose(np.dot(posold,axes),pos):
+        print 'Old and new positions do not match!!'
+        #print (newdot.dot(axes.T,posold.T).T)[-2:]
+        #print axes
+        #print posold[-2:]
+        #print pos[-2:]
+    #print posorg[0],pos[0],np.dot(posorg[0],axes)
+    #if count < 100:
+    #    print "It took ", count, "iterations to converge"
+    return q,len(posbin),axes
