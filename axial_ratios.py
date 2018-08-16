@@ -12,20 +12,9 @@ import utils
 
 class AxialRatio:
     def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
-        if nbins.__class__ == float:
-            assert nbins <= 1.
-            self.logr=np.array(np.log10(nbins))
-            self.nbins=1
-        elif nbins.__class__ == np.ndarray:
-            print 'Using r=',nbins
-            self.logr=np.log10(nbins)
-            self.nbins=len(nbins)
-        elif nbins.__class__ == int:
-            self.logr=np.linspace(np.log10(rmin),np.log10(rmax),nbins)
-            self.nbins=nbins
-            print 'Number of bins specified. Using rmin,rmax=',rmin,rmax
-        else:
-            raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
+            #raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
+        #assert nbins.__class__  in [int, float, np.ndarray]
+        assert nbins >= 0
 
         if catdir.find('/output')<0:
             self.snapdir=catdir+'/output/'
@@ -33,7 +22,31 @@ class AxialRatio:
             self.snapdir=catdir
         print self.snapdir
         self.cat=readsubfHDF5.subfind_catalog(self.snapdir,snapnum,\
-                keysel=["Group_R_Crit200","GroupFirstSub", "SubhaloPos","Group_M_Crit200","GroupPos"])
+                keysel=["Group_R_Crit200","GroupFirstSub", "SubhaloPos","Group_M_Crit200","GroupPos","SubhaloMass"])
+
+        self.setparams(catdir,snapnum,nbins,rmin,rmax,useFOF,solid,NR,binwidth);
+
+    def setparams(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
+        #if nbins.__class__ == float: #single radius calc
+        #    assert nbins <= 1.
+        if nbins == 1:
+            print 'nbin=1: calculating for single r', rmin
+            assert rmin.__class__ == float
+            self.logr=np.array(np.log10(rmin))
+            self.nbins=1
+            print 'Calculating for single r', nbins
+        #elif nbins.__class__ == np.ndarray: #specify radii
+        elif nbins == 0: #specify radii
+            print 'nbins=-1 specified. Using the specified radii',rmin
+            self.logr=np.log10(rmin)
+            self.nbins=len(rmin)
+        #elif nbins.__class__ == int: #use log interval
+        elif nbins > 1:
+            self.logr=np.linspace(np.log10(rmin),np.log10(rmax),nbins)
+            self.nbins=nbins
+            print 'Number of bins specified. Using rmin,rmax=',rmin,rmax,'with nbins=', nbins
+        else:
+            raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
 
         self.snapnum=snapnum
         self.useFOF=useFOF
@@ -42,6 +55,15 @@ class AxialRatio:
         self.binwidth=binwidth
         self.rin=10**(self.logr-self.binwidth/2.);self.rout=10**(self.logr+self.binwidth/2.)
 
+        if useFOF==True:
+            print 'Note: Using all particles in FOF group!'
+        else:
+            print 'Note: Using only particles in central subhalo!'
+        if solid==True:
+            print 'NOte: Using ellipsoidal volumes!'
+        else:
+            print 'Note: Using ellipsoidal shells!'
+
     def readhalo(self,groupid,parttype):
         snapdir=self.snapdir
         snapnum=self.snapnum
@@ -49,7 +71,7 @@ class AxialRatio:
         if self.useFOF:
             pos=snapshot.loadhalo(snapdir,snapnum,group,parttype,["Coordinates"])
             pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
-        else: #DEFAULT: not NR and use cantral subhalo only
+        else: #DEFAULT: not NR and use central subhalo only
             subnum=cat.GroupFirstSub[groupid]
             pos=snapshot.loadSubhalo(snapdir,snapnum,subnum,parttype,["Coordinates"])
             pos=utils.image(cat.SubhaloPos[subnum],pos,75000)-cat.SubhaloPos[subnum]
