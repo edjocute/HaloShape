@@ -9,7 +9,7 @@ import numexpr as ne
 import newdot
 #from scipy.linalg import blas as FP
 
-def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
+def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-3):
 
     ###Initialize values###
     pos=posold.copy()
@@ -17,7 +17,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
     conv=10
     count=0
     exit=0
-    axes=np.diag((1,1,1))
+    axes=np.eye(3)
 
     if mass.__class__== bool:
         assert mass == False
@@ -26,7 +26,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
     else:
         print 'Warning: mass array seems wrong!!'
 
-    while (conv > 1e-2 and exit!=1): ##r=1e-3 is the convergence criterion###
+    while (conv > convcrit  and exit!=1): ##r=1e-3 is the convergence criterion###
         count+=1
 
         ### Restrict to particles of required radii
@@ -50,7 +50,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
         else:
             a2 = 1
 
-## Calculate inertia tensor
+## Calculate shape tensor
         M=np.zeros([3,3])
         if mass.__class__== bool:
             for i in np.arange(3):
@@ -76,6 +76,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
 ###Get eigenvalues and eigenvectors of M[i,j] and sort them from largest to smallest eigenvalue###
         eigval,eigvec=np.linalg.eig(M)      ## get eigenvalues and normalized eigenvectors
                                             ## The COLUMNs of eigvec are the principal axes according to numpy documentation
+        #print eigval
 
         arg=np.argsort(eigval)[::-1]
         newM=eigval[arg]                    ## sort eigenvalues from largest to smallest
@@ -87,12 +88,12 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
         ## The convention here is M' = V.T M V
         ## which should correspond to the eigenvalues on the diagonal
         if not np.allclose( np.dot(rotmat.T,np.dot(M,rotmat)),np.diag(newM)):
-            #print "Difference : ",abs(np.dot(rotmat.T,np.dot(M,rotmat))-np.diag(newM))
             print "Error in similarity transformation!!"
             return -1.,-1.,len(posbin), np.zeros((3,3))
             exit=1
 
-        if (newM < 1e-5).any():             ## Check that eigenvalues are not too small, else the next iteration can
+        if (newM < 1e-5).any():             ## Check that eigenvalues are not too small,
+                                            ## else the next iteration can
                                             ## return imaginary values
             print 'eigenvalues too close to zero, stopping iteration'
             return -1.,-1.,len(posbin), np.zeros((3,3))
@@ -119,8 +120,8 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False):
         q,s=q_new,s_new
 
         ###Other checks###
-        if (count == 100):
-            print 'Not converging at rin,rout = ',rin,rout, 'with', len(posbin),'in bin'
+        if (count == 150):
+            print 'Not converging after 150 iterations at rin,rout = ',rin,rout, 'with', len(posbin),'in bin'
             exit=1
         elif (q>1 or s>1):
             print "q/s greater than 1!"

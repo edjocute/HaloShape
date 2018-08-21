@@ -17,35 +17,48 @@ from functools import partial
 #sys.path.append('')
 import axial_ratios as ar
 
-mass=[12,12.01]
-
 #Parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("snap", type=int, help="snapshot number")
 parser.add_argument("t", help="Sim type: FP, DM or NR")
-parser.add_argument("-b","--base", default='/n/ghernquist/Illustris/Runs/L75n1820', help="Base directory. Default = /n/ghernquist/Illustris/Runs/L75n1820")
 parser.add_argument("-c","--chunksize", type=int, default=100, help="Chunksize for parallel calculation")
 parser.add_argument("--minmass", type=int, default=11, help="Min halo mass to be considered")
 parser.add_argument("--nthreads", type=int, default=4, help="Number of threads for numexpr")
+parser.add_argument("--test", action="store_true", help="Turn on testing mode")
+parser.add_argument("--TNG", action="store_true", help="Use TNG dir? If this option is selected, supercedes --base")
+parser.add_argument("-b","--base", default='/n/ghernquist/Illustris/Runs/', help="Base directory. Default = /n/ghernquist/Illustris/Runs/L75n1820")
+parser.add_argument("-hu","--hubble", default=0.704, help="Hubble parameter H_0=100h")
 args = parser.parse_args()
 
 #dir='/n/ghernquist/Illustris/Runs/L75n1820DM/'
-fdir = args.base+args.t+'/'
+fbase = args.base
+if args.t.find('TNG') > 0:
+    fbase = "/n/hernquistfs3/IllustrisTNG/Runs/"
+fdir = fbase+args.t+'/'
+assert os.path.isdir(fdir),fdir+" does not exist!"
 snap = args.snap
 fout = str(snap).zfill(4)
 
 chunksize = args.chunksize
 ar.ellipsoid.ne.threads=args.nthreads
+mass=[args.minmass,100]
+if args.test:
+    mass=[12,12.01]
+    chunksize=5
 
 print 'Directory: ',fdir
 print 'Snapshot: ', snap
-print 'Number of threads for numexpr: ', args.nthreads
+print 'Halo mass range: 10^'+str(mass),'M_sun'
+print 'Hubble parameter: ',args.hubble
+print 'Number of cores for sharedmem: ',sharedmem.cpu_count()
+print 'Number of threads for numexpr: ',args.nthreads
+print ' '
 nbins=15
 
 a=ar.AxialRatio(fdir,snap,nbins)
 #subhalomass=a.cat.SubhaloMass/0.704*1e10
 #subhalos=np.nonzero((subhalomass>10**(12)) & subhalomass<10**12.1))[0]
-groupmass=a.cat.Group_M_Crit200/0.704*1e10
+groupmass=a.cat.Group_M_Crit200/args.hubble*1e10
 groups=np.nonzero((groupmass>10**mass[0]) & (groupmass<10**mass[1]))[0]
 nsubs=a.cat.nsubs
 ngroups=a.cat.ngroups
