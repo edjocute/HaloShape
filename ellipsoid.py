@@ -92,7 +92,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
             M=M*rvir**2/ne.evaluate("sum(massbin)")
 
 ###Get eigenvalues and eigenvectors of M[i,j] and sort them from largest to smallest eigenvalue###
-        eigval,eigvec=np.linalg.eig(M)      ## get eigenvalues and normalized eigenvectors
+        eigval,eigvec=np.linalg.eigh(M)      ## get eigenvalues and normalized eigenvectors
                                             ## The COLUMNs of eigvec are the principal axes according to numpy documentation
 
         arg=np.argsort(eigval)[::-1]
@@ -104,9 +104,9 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
         ## Check rotation matrix using similarity transformation
         ## The convention here is M' = V.T M V
         ## which should correspond to the eigenvalues on the diagonal
-        if not np.allclose( np.dot(rotmat,np.dot(M,rotmat.T)),np.diag(E),atol=1e-4):
+        if not np.allclose( np.dot(V.T,np.dot(M,V)),np.diag(E),atol=1e-4):
             print "Error in similarity transformation!!"
-            print np.dot(rotmat,np.dot(M,rotmat))
+            print np.dot(V.T,np.dot(M,V))
             print E
             return -1.,-1.,len(posbin), np.zeros((3,3))
             exit=1
@@ -339,8 +339,8 @@ if __name__=="__main__":
 	print "1) q=1, s=1 :"
 	test(N,q=1.,s=1.)
 
-	print "2) q=0.9,s=0.8:"
-	test(N,q=0.9,s=0.9)
+	print "2) q=0.9,s=0.7:"
+	test(N,q=0.9,s=0.7)
 
 	print "3) q=0.5,s=0.25:"
 	test(N,q=0.5,s=0.25)
