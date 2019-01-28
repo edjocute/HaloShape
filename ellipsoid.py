@@ -4,7 +4,7 @@
 ## This uses the method described in Dubinski and Carlberg (1995)
 ## using the eigenvalues of the modified inertia tensor
 ##
-## Usage: 
+## Usage:
 ## ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2)
 ## 1) posold = positions normalized by virial radius (Nx3)
 ## 2) rvir = rvir in kpc
@@ -13,7 +13,7 @@
 ## 5) mass = False: no mass weightage e.g. DM-only runs
 ##         =  array of size N: weight particles by mass e.g. for FP runs
 ## 6) convcrit = Convergence criteria
-## 
+##
 ## Output:
 ## 1) q (size N array)
 ## 2) s (size N array)
@@ -26,8 +26,11 @@ import numexpr as ne
 import newdot
 #from scipy.linalg import blas as FP
 
-def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
+def ellipsoidfit(posold,rvir,rin,rout,mass=None,weighted=False,convcrit=1e-2,returnenc=False,verbose=False):
     #posold is position normalized by virial radius
+
+    if mass is not None:
+        assert len(posold) == len(mass), 'Error: mass array seems wrong!!'
 
     ###Initialize values###
     pos=posold.copy()
@@ -37,40 +40,35 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
     exit=0
     axes=np.eye(3)
 
-    if mass.__class__== bool:
-        assert mass == False
-    elif mass.__class__ == np.ndarray:
-        assert len(posold) == len(mass)
-    else:
-        print 'Warning: mass array seems wrong!!'
 
     while (conv > convcrit  and exit!=1): ##r=1e-3 is the convergence criterion###
         count+=1
 
-        ### Restrict to particles of required radii
+    ### Restrict to particles of required radii
         p0,p1,p2 = pos[:,0],pos[:,1],pos[:,2]
         #dist2=pos[:,0]**2 + (pos[:,1]/q)**2 + (pos[:,2]/s)**2
-        dist2 = ne.evaluate("p0**2 + (p1/q)**2 + (p2/s) **2")
-        slice= ne.evaluate("(dist2>rin**2) & (dist2<rout**2)")
+        d2 = ne.evaluate("p0**2 + (p1/q)**2 + (p2/s) **2")
+        slice= ne.evaluate("(d2>rin**2) & (d2<rout**2)")
         posbin=pos[slice]
-        if mass.__class__==np.ndarray:
-                massbin=mass[slice]
+        if mass is not None:
+            massbin=mass[slice]
 
-        if len(posbin)==0:
-            print "no particles in bin"
-            return -1.,-1.,0, np.zeros((3,3))
+    ### If too few particles, abort
+        if len(posbin) <= 10:
+            if verbose: print "Too few particles in bin, rin,rout=",rin,rout
+            return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
 
-## Do we want to use a weighted shape tensor? ##
+    ### Do we want to use a weighted shape tensor? ##
         if weighted:
             pb0,pb1,pb2 = posbin[:,0],posbin[:,1],posbin[:,2]
             a2 = ne.evaluate("pb0**2 + (pb1/q)**2 + (pb2/s) **2")
         else:
             a2 = 1
 
-## Calculate shape tensor
+    ### Calculate shape tensor
         M=np.zeros([3,3])
-        if mass.__class__== bool:
+        if mass is None:
             for i in np.arange(3):
                 pi=posbin[:,i]
                 M[i,i]+= ne.evaluate("sum(pi**2/a2)")
@@ -104,11 +102,11 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
         ## Check rotation matrix using similarity transformation
         ## The convention here is M' = V.T M V
         ## which should correspond to the eigenvalues on the diagonal
-        if not np.allclose( np.dot(V.T,np.dot(M,V)),np.diag(E),atol=1e-4):
+        if not np.allclose( np.linalg.multi_dot((V.T,M,V)),np.diag(E),atol=1e-4):
             print "Error in similarity transformation!!"
-            print np.dot(V.T,np.dot(M,V))
+            print np.linalg.multidot(V.T,M,V)
             print E
-            return -1.,-1.,len(posbin), np.zeros((3,3))
+            return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
 
         if (E < 1e-6).any():             ## Check that eigenvalues are not too small,
@@ -117,7 +115,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
             print 'eigenvalues too close to zero, stopping iteration'
             print count,eigval
             print eigvec
-            return -1.,-1.,len(posbin), np.zeros((3,3))
+            return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
 
         ## Now we can obtain q and s from the eigenvalues
@@ -144,18 +142,28 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=False,weighted=False,convcrit=1e-2):
 
         ###Other checks###
         if (count == 150):
-            print 'Not converging after 150 iterations at rin,rout = ',rin,rout, 'with', len(posbin),'in bin'
+            if verbose:
+                print 'Not converging after 150 iterations at rin,rout = ',rin,rout, 'with', len(posbin),'in bin'
+            return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
         elif (q>1 or s>1):
             print "q/s greater than 1!"
+            return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
             print "lenbin = ",len(posbin)
-    if not np.allclose(newdot.dot(axes.T,posold.T).T,pos):
-        print 'Old and new positions do not match!!'
+    #if not np.allclose(newdot.dot(axes.T,posold.T).T,pos):
+    #    print 'Old and new positions do not match!!'
     #print posorg[0],pos[0],np.dot(posorg[0],axes)
-    #if count < 100:
-    #    print "It took ", count, "iterations to converge"
-    return q,s,len(posbin),axes
+
+    #if returnenc:
+    enc=np.count_nonzero(d2< (rin**2))
+    return q,s,len(posbin),axes,enc
+    #else:
+    #    return q,s,len(posbin),axes
+
+
+
+
 
 def ellipsoidfit2D(posold,rvir,rin,rout,mass=False,weighted=False):
 
@@ -288,7 +296,7 @@ def ellipsoidfit2D(posold,rvir,rin,rout,mass=False,weighted=False):
     #    print "It took ", count, "iterations to converge"
     return q,len(posbin),axes
 
-def test(N=1000,h=0.1,R=10.,q=1.,s=1.,phi=0.,theta=0.):
+def test(N=1000,h=0.1,R=1.,q=1.,s=1.,phi=0.,theta=0.):
 	from mpl_toolkits.mplot3d import Axes3D
 	import matplotlib.pyplot as plt
 
@@ -302,13 +310,14 @@ def test(N=1000,h=0.1,R=10.,q=1.,s=1.,phi=0.,theta=0.):
 	while tot < N:
 		u = np.random.rand(1)
 		t = R* u**(1./3.)
-		if t>(1-h)*R:
+        	if t>(1-h)*R:
 			r[tot]=t
-			tot+=1			
+			tot+=1
 
-	x=R*np.sin(alltheta)*np.cos(allphi)
-	y=q*R*np.sin(alltheta)*np.sin(allphi)
-	z=s*R*np.cos(alltheta)
+	print "Run some tests:"
+	x=r*np.sin(alltheta)*np.cos(allphi)
+	y=q*r*np.sin(alltheta)*np.sin(allphi)
+	z=s*r*np.cos(alltheta)
 
 	#Rotate ellipsoid
 	phi=np.deg2rad(phi)
@@ -324,10 +333,12 @@ def test(N=1000,h=0.1,R=10.,q=1.,s=1.,phi=0.,theta=0.):
 	pos=np.vstack([x,y,z]).T
 	pos=np.dot(Rtot,pos.T).T
 
-	out=ellipsoidfit(pos,1.,0,1e10,convcrit=1e-3)
+	#out=ellipsoidfit(pos,1.,0,1e10,convcrit=1e-3)
+	out=ellipsoidfit(pos,R,1.0,1.2,convcrit=1e-3)
 	print 'Results:'
 	print 'q=',out[0],'expected=',q
 	print 's=',out[1],'expected=',s
+	print 'n=',out[2]
 	print 'R=',out[3]
 	print Rtot
         rdot = [out[3][:,i].dot(Rtot[:,i]) for i in range(3)]
@@ -353,6 +364,7 @@ if __name__=="__main__":
 
 	print "6) q=0.5,s=0.25,phi=0,theta=60"
 	test(N,q=0.5,s=0.25,phi=0.,theta=60.)
-	
+
 	print "7) q=0.5,s=0.25,phi=30,theta=30"
 	test(N,q=0.5,s=0.25,phi=30.,theta=30.)
+	test(100000,q=0.8,s=0.5,phi=30.,theta=30.,h=0.9,R=2)
