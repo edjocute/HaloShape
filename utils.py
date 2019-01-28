@@ -5,6 +5,12 @@
 ## 2. Number of subhaloes in the group, excluding the parent halo
 ## 3. Array of subhalo index
 import numpy as np
+
+def getGroups(m,mmin,mmax=None):
+    if mmax == None:
+       return np.where(m>10**mmin)[0]
+    return np.where( (m>10**mmin) & (m<10**mmax))[0]
+
 def readdat(filename):
 	f=open(filename,'rb')
 	nsub=np.fromfile(f,dtype='uint32',count=1)
@@ -25,7 +31,7 @@ def mean(a):
 		b[i]=a[:,i][a[:,i]>0].mean()
 	return b
 
-#Finds shortest distance in periodic box	
+#Finds shortest distance in periodic box
 def shortestdistold(a,b,boxsize):#a and b are 3-d vectors
 	distmin=np.sqrt(((a-b)**2).sum())
 	if distmin <= boxsize/2.:
@@ -45,10 +51,21 @@ def shortestdistold(a,b,boxsize):#a and b are 3-d vectors
 
 #Returns image of point b closest to point a in a periodic box
 def image(a,b,boxsize):#a and b are 3-d vectors
-	diff=b-a
-	b[(b-a)>(boxsize/2.)]-=boxsize
-	b[(b-a)<(-boxsize/2.)]+=boxsize
-	return b
+    if b is None:
+        diff = a; p = a
+    elif np.shape(a) == (3,):
+        diff = b-a; p = b
+    elif np.shape(b) == (3,):
+        diff = a-b; p = a
+    else:
+        print 'Image',a.shape,b.shape,boxsize
+        raise Exception('Cannot get image of positions!!')
+
+    p[diff > (boxsize/2.)]-=boxsize
+    p[diff < (-boxsize/2.)]+=boxsize
+    assert np.alltrue(np.abs(p)<boxsize/2.)
+
+    return p
 
 def shortestdist(a,b,boxsize):#a and b are 3-d vectors
 	if len(b.shape)==1:
@@ -77,7 +94,7 @@ def readcat(cat,mass,boxsize):
 				#else:
 					#print 'Error, outside of Rvir'
 		List.append([i,len(count),count])
-	return List	
+	return List
 
 
 def readcatall(cat,mass,boxsize,which=0):
@@ -129,7 +146,7 @@ def vir(dist,mass,D=200):
 	else:
 		n=-1
 	return distsort[n],(masssort.cumsum())[n]
-	
+
 def virold(dist,mass,D=200):
         import numpy as np
         import conversions as conv
