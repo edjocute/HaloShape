@@ -6,12 +6,13 @@ import numpy as np
 #import loadhalo
 import snapshot
 import readsubfHDF5
+import readsnapHDF5
 import ellipsoid
 import utils
 #import readhaloHDF5
 
 class AxialRatio:
-    def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
+    def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1,debug=False):
             #raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
         #assert nbins.__class__  in [int, float, np.ndarray]
         assert nbins >= 0
@@ -20,34 +21,44 @@ class AxialRatio:
             self.snapdir=catdir+'/output/'
         else:
             self.snapdir=catdir
-        print self.snapdir
+
+        print '\tAxialRatio: ',self.snapdir
         self.cat=readsubfHDF5.subfind_catalog(self.snapdir,snapnum,\
-                keysel=["Group_R_Crit200","GroupFirstSub", "SubhaloPos","Group_M_Crit200","GroupPos","SubhaloMass"])
+                keysel=["Group_R_Crit200","GroupFirstSub", "Group_M_Crit200","GroupPos","SubhaloLenType"])
+                #keysel=["Group_R_Crit200","GroupFirstSub", "SubhaloPos","Group_M_Crit200","GroupPos","SubhaloMass"])
+
+        snapstr=str(snapnum).zfill(3)
+        header=readsnapHDF5.snapshot_header(self.snapdir+'/snapdir_'+snapstr+'/snap_'+snapstr)
+
+        print '\tAxialRatio: Boxsize = ', header.boxsize
+        self.boxsize = header.boxsize
 
         self.setparams(catdir,snapnum,nbins,rmin,rmax,useFOF,solid,NR,binwidth);
+        self.debug=debug
 
-    def setparams(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1):
+    def setparams(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1,debug=False):
         #if nbins.__class__ == float: #single radius calc
         #    assert nbins <= 1.
         if nbins == 1:
-            print 'nbin=1: calculating for single r', rmin
+            print '\tnbin=1: calculating for single r', rmin
             assert rmin.__class__ == float
             self.logr=np.array(np.log10(rmin))
             self.nbins=1
-            print 'Calculating for single r', nbins
+            print '\tCalculating for single r', nbins
         #elif nbins.__class__ == np.ndarray: #specify radii
         elif nbins == 0: #specify radii
-            print 'nbins=-1 specified. Using the specified radii',rmin
+            print '\tnbins=0 specified. Using the specified radii',rmin
             self.logr=np.log10(rmin)
             self.nbins=len(rmin)
         #elif nbins.__class__ == int: #use log interval
         elif nbins > 1:
             self.logr=np.linspace(np.log10(rmin),np.log10(rmax),nbins)
             self.nbins=nbins
-            print 'Number of bins specified. Using rmin,rmax=',rmin,rmax,'with nbins=', nbins
+            print '\tAxialRatio: Number of bins specified. Using rmin,rmax=',rmin,rmax,'with nbins=', nbins
         else:
             raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
 
+        self.debug=debug
         self.snapnum=snapnum
         self.useFOF=useFOF
         self.solid=solid
@@ -56,36 +67,50 @@ class AxialRatio:
         self.rin=10**(self.logr-self.binwidth/2.);self.rout=10**(self.logr+self.binwidth/2.)
 
         if useFOF==True:
-            print 'Note: Using all particles in FOF group!'
+            print '\tAxialRatio Note: Using all particles in FOF group!'
         else:
-            print 'Note: Using only particles in central subhalo!'
+            print '\tAxialRatio Note: Using only particles in central subhalo!'
         if solid==True:
-            print 'NOte: Using ellipsoidal volumes!'
+            print '\tAxialRatio Note: Using ellipsoidal volumes!'
         else:
-            print 'Note: Using ellipsoidal shells!'
+            print '\tAxialRatio Note: Using ellipsoidal shells!'
+
 
     def readhalo(self,groupid,parttype):
         snapdir=self.snapdir
         snapnum=self.snapnum
         cat=self.cat
+        centre = cat.GroupPos[groupid]
         if self.useFOF:
-            pos=snapshot.loadhalo(snapdir,snapnum,group,parttype,["Coordinates"])
-            pos=utils.image(cat.GroupPos[group],pos,75000)-cat.GroupPos[group]
+            pos = snapshot.loadhalo(snapdir,snapnum,groupid,parttype,["Coordinates"])
         else: #DEFAULT: not NR and use central subhalo only
-            subnum=cat.GroupFirstSub[groupid]
-            pos=snapshot.loadSubhalo(snapdir,snapnum,subnum,parttype,["Coordinates"])
-            pos=utils.image(cat.SubhaloPos[subnum],pos,75000)-cat.SubhaloPos[subnum]
+            subnum = cat.GroupFirstSub[groupid]
+            pos = snapshot.loadSubhalo(snapdir,snapnum,subnum,parttype,["Coordinates"])
+
+        npart = len(pos)
+        try:
+            pos = utils.image(pos-centre,None,self.boxsize)
+        except:
+            print 'readhalo failed:',groupid, pos.__class__, centre
+            return None
+
+        assert npart == len(pos),'Readhalo error! pos={}'.format(pos)
         return pos
 
     def getshape(self,group,parttype):
         logr=self.logr
         nbins=self.nbins
         rvir=self.cat.Group_R_Crit200[group]
-        pos=self.readhalo(group,parttype)/rvir
+        pos=self.readhalo(group,parttype)
 
         q,s=np.zeros(nbins),np.zeros(nbins)
-        n=np.zeros(nbins,dtype=int)
+        n=np.zeros((nbins,2),dtype=int)
         axes=np.zeros((nbins,3,3))
+
+        if pos is None:
+            print 'getshape: pos is None'
+            return None
+        pos/=rvir
 
         #print "Fitting ellipsoids with",nbins,"bins"
         for i in np.arange(nbins):
@@ -99,7 +124,7 @@ class AxialRatio:
                     tempout=ellipsoid.ellipsoidfit(pos,rvir,self.rin[i],self.rout[i])
                 else:
                     tempout=ellipsoid.ellipsoidfit(pos,rvir,self.rin[i],self.rout[i],mass=mass)
-            q[i],s[i],n[i],axes[i]=tempout
+            q[i],s[i],n[i,0],axes[i],n[i,1]=tempout
         return q,s,n,axes
 
     def DM(self,group):
