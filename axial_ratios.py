@@ -12,7 +12,7 @@ import utils
 #import readhaloHDF5
 
 class AxialRatio:
-    def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1,debug=False):
+    def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useFOF=False,solid=False,NR=False,binwidth=0.1,debug=False,useSubhaloes=False):
             #raise Exception('Invalid specification of nbins. Must be float, numpy array or int')
         #assert nbins.__class__  in [int, float, np.ndarray]
         assert nbins >= 0
@@ -22,10 +22,11 @@ class AxialRatio:
         else:
             self.snapdir=catdir
 
+        keysel=["Group_R_Crit200","GroupFirstSub", "Group_M_Crit200","GroupPos"]
+        if useSubhaloes == True:
+            keysel=["Group_R_Crit200","GroupFirstSub", "Group_M_Crit200","GroupPos","GroupNsubs","SubhaloPos","SubhaloMass"]
         print '\tAxialRatio: ',self.snapdir
-        self.cat=readsubfHDF5.subfind_catalog(self.snapdir,snapnum,\
-                keysel=["Group_R_Crit200","GroupFirstSub", "Group_M_Crit200","GroupPos","SubhaloLenType"])
-                #keysel=["Group_R_Crit200","GroupFirstSub", "SubhaloPos","Group_M_Crit200","GroupPos","SubhaloMass"])
+        self.cat=readsubfHDF5.subfind_catalog(self.snapdir,snapnum, keysel=keysel)
 
         snapstr=str(snapnum).zfill(3)
         header=readsnapHDF5.snapshot_header(self.snapdir+'/snapdir_'+snapstr+'/snap_'+snapstr)
@@ -41,7 +42,7 @@ class AxialRatio:
         #    assert nbins <= 1.
         if nbins == 1:
             print '\tnbin=1: calculating for single r', rmin
-            assert rmin.__class__ == float
+            assert rmin.__class__ is float
             self.logr=np.array(np.log10(rmin))
             self.nbins=1
             print '\tCalculating for single r', nbins
@@ -76,16 +77,20 @@ class AxialRatio:
             print '\tAxialRatio Note: Using ellipsoidal shells!'
 
 
-    def readhalo(self,groupid,parttype):
+    def readhalo(self,groupid,parttype=1):
         snapdir=self.snapdir
         snapnum=self.snapnum
         cat=self.cat
         centre = cat.GroupPos[groupid]
         if self.useFOF:
             pos = snapshot.loadhalo(snapdir,snapnum,groupid,parttype,["Coordinates"])
+            if parttype != 1:
+                mass = snapshot.loadhalo(snapdir,snapnum,groupid,parttype,["Mass"])
         else: #DEFAULT: not NR and use central subhalo only
             subnum = cat.GroupFirstSub[groupid]
             pos = snapshot.loadSubhalo(snapdir,snapnum,subnum,parttype,["Coordinates"])
+            if parttype != 1:
+                mass = snapshot.loadSubhalo(snapdir,snapnum,subnum,parttype,["Mass"])
 
         npart = len(pos)
         try:
@@ -95,13 +100,21 @@ class AxialRatio:
             return None
 
         assert npart == len(pos),'Readhalo error! pos={}'.format(pos)
-        return pos
+
+        if parttype == 1:
+            return pos
+        else:
+            return pos,mass
+
 
     def getshape(self,group,parttype):
         logr=self.logr
         nbins=self.nbins
         rvir=self.cat.Group_R_Crit200[group]
-        pos=self.readhalo(group,parttype)
+        if parttype == 1:
+            pos=self.readhalo(group,parttype)
+        else:
+            pos,mass=self.readhalo(group,parttype)
 
         q,s=np.zeros(nbins),np.zeros(nbins)
         n=np.zeros((nbins,2),dtype=int)
@@ -132,6 +145,48 @@ class AxialRatio:
 
     def Stars(self,group):
         return self.getshape(group,4)
+
+    def getShapefromSubhalo(self,group,parttype=1,minmass=10**9):
+        logr=self.logr
+        nbins=self.nbins
+        rvir=self.cat.Group_R_Crit200[group]
+        pos,mass=self.getSubhaloes(group,parttype,minmass)
+        print group,len(mass)
+        print np.count_nonzero(np.linalg.norm(pos,axis=1) < rvir)
+
+        q,s=np.zeros(nbins),np.zeros(nbins)
+        n=np.zeros((nbins,2),dtype=int)
+        axes=np.zeros((nbins,3,3))
+
+        if pos is None:
+            print 'getshape: pos is None'
+            return None
+        pos/=rvir
+
+        for i in np.arange(nbins):
+            if self.solid:
+                tempout=ellipsoid.ellipsoidfit(pos,rvir,0,10**logr[i],mass=None,weighted=True,verbose=True)
+            else:
+                tempout=ellipsoid.ellipsoidfit(pos,rvir,0,10**logr[i],mass=None,verbose=True)
+            q[i],s[i],n[i,0],axes[i],n[i,1]=tempout
+        return q,s,n,axes
+
+    def getSubhaloes(self,group,parttype,minmass):
+        s=slice(self.cat.GroupFirstSub[group],self.cat.GroupFirstSub[group]+self.cat.GroupNsubs[group])
+
+        pos=self.cat.SubhaloPos[s]
+        mass=self.cat.SubhaloMass[s]
+
+        centre = self.cat.GroupPos[group]
+        npart = len(pos)
+        try:
+            pos = utils.image(pos-centre,None,self.boxsize)
+        except:
+            print 'getSubhaloes failed:',groupid, pos.__class__, centre
+            return None
+
+        return pos[mass>minmass/1e10],mass[mass>minmass/1e10]
+
 
     def get2Dshape(self,group,parttype):
         logr=self.logr

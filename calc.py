@@ -27,8 +27,9 @@ parser.add_argument("--minmass", type=float, default=11, help="Min halo mass to 
 parser.add_argument("--maxmass", type=float, default=100, help="Min halo mass to be considered")
 parser.add_argument("--nthreads", type=int, default=4, help="Number of threads for numexpr")
 parser.add_argument("--test", action="store_true", help="Turn on testing mode")
+parser.add_argument("--subhaloes", action="store_true", help="Turn on shapes from subhaloes")
 parser.add_argument("--TNG", action="store_true", help="Use TNG dir? If this option is selected, supercedes --base")
-parser.add_argument("-b","--base", default='/n/ghernquist/Illustris/Runs/', help="Base directory. Default = /n/ghernquist/Illustris/Runs/L75n1820")
+parser.add_argument("-b","--base", default='/n/ghernquist/Illustris/Runs/', help="Base directory. Default = /n/ghernquist/Illustris/Runs/")
 #parser.add_argument("-hu","--hubble", default=0.704, help="Hubble parameter H_0=100h")
 args = parser.parse_args()
 
@@ -36,7 +37,6 @@ print '######################################################'
 print 'Calculating halo shapes!\n'
 #dir='/n/ghernquist/Illustris/Runs/L75n1820DM/'
 fbase = args.base
-hubble = args.hubble
 if (args.t.find('TNG')>0) or (args.TNG):
     print args.t
     print args.TNG
@@ -68,7 +68,7 @@ print 'Number of cores for sharedmem: ',sharedmem.cpu_count()
 print 'Number of threads for numexpr: ',args.nthreads
 print ' '
 
-nbins=18; a=ar.AxialRatio(fdir,snap,nbins,rmin=10**-2.42857143)
+nbins=18; a=ar.AxialRatio(fdir,snap,nbins,rmin=10**-2.42857143,useSubhaloes=args.subhaloes)
 #nbins=15; a=ar.AxialRatio(fdir,snap,nbins,rmin=10**-2)
 groupmass=a.cat.Group_M_Crit200/hubble*1e10
 groups=np.nonzero((groupmass>10**mass[0]) & (groupmass<10**mass[1]))[0]
@@ -84,6 +84,7 @@ print ' '
 
 
 def createandsavefields(f,g,ngroups,nbins,data,groups,chunksize,done=False):
+    print 'Saving results!'
     r=f.create_carray(g,"r",tables.Float32Col(),(nbins,))
     q=f.create_carray(g,"q",tables.Float32Col(),(ngroups,nbins))
     s=f.create_carray(g,"s",tables.Float32Col(),(ngroups,nbins))
@@ -126,55 +127,67 @@ with tables.open_file(fout,'w') as f:
 
 #2: Start with 20 ellipsoidal shells
 print '#######################################################################################'
-with sharedmem.MapReduce() as pool:
-    def work(i):
-        sl = slice (i, i + chunksize)
-        start, end, step = sl.indices(N)
-        return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
-    out = pool.map(work, range(0,N,chunksize))
+if not args.subhaloes:
+    with sharedmem.MapReduce() as pool:
+        def work(i):
+            sl = slice (i, i + chunksize)
+            start, end, step = sl.indices(N)
+            return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
+        out = pool.map(work, range(0,N,chunksize))
 
-print 'Saving file'
-with tables.open_file(fout,'r+') as f:
-    g = f.create_group("/", "profile", "Local shapes from ellipsoidal shells with radius")
-    createandsavefields(f,g,ngroups,nbins,out,groups,chunksize)
-    f.root.profile.r[:] = 10**a.logr
-    f.flush()
+    with tables.open_file(fout,'r+') as f:
+        g = f.create_group("/", "profile", "Local shapes from ellipsoidal shells with radius")
+        createandsavefields(f,g,ngroups,nbins,out,groups,chunksize)
+        f.root.profile.r[:] = 10**a.logr
+        f.flush()
 
 #3: Do 3 particular ellipsoidal shells next: 10%, 15%, 20%, 50%, 100% R_200
-print ' '
-print '#######################################################################################'
-nbins = 5
-a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0])
-with sharedmem.MapReduce() as pool:
-    def work(i):
-        sl = slice (i, i + chunksize)
-        start, end, step = sl.indices(N)
-        return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
-    out = pool.map(work, range(0,N,chunksize))
+    nbins = 5
+    a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0])
+    with sharedmem.MapReduce() as pool:
+        def work(i):
+            sl = slice (i, i + chunksize)
+            start, end, step = sl.indices(N)
+            return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
+        out = pool.map(work, range(0,N,chunksize))
 
-with tables.open_file(fout,'r+') as f:
-    g = f.create_group("/", "shell", "Local shapes from ellipsoidal shells at chosen radii")
-    createandsavefields(f,g,ngroups,nbins,out,groups,chunksize)
-    f.root.shell.r[:] = 10**a.logr
-    f.flush()
-
+    with tables.open_file(fout,'r+') as f:
+        g = f.create_group("/", "shell", "Local shapes from ellipsoidal shells at chosen radii")
+        createandsavefields(f,g,ngroups,nbins,out,groups,chunksize)
+        f.root.shell.r[:] = 10**a.logr
+        f.flush()
 
 #4: Finally, do ellipsoidal volumes next: 10%, 15%, 20%, 50%, 100% R_200
-print ' '
-print '#######################################################################################'
-nbins = 5
-a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0],solid=True)
-with sharedmem.MapReduce() as pool:
-    def work(i):
-        sl = slice (i, i + chunksize)
-        start, end, step = sl.indices(N)
-        return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
-    out = pool.map(work, range(0,N,chunksize))
+    a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0],solid=True)
+    with sharedmem.MapReduce() as pool:
+        def work(i):
+            sl = slice (i, i + chunksize)
+            start, end, step = sl.indices(N)
+            return i,[a.DM(t) for t in groups[np.arange(start,end,step)]]
+        out = pool.map(work, range(0,N,chunksize))
 
-with tables.open_file(fout,'r+') as f:
-    g = f.create_group("/", "reduced", "Shapes from ellipsoidal volumes with reduced inertia tensor at chosen radii")
-    createandsavefields(f,g,ngroups,nbins,out,groups,chunksize,done=True)
-    f.root.reduced.r[:] = 10**a.logr
-    f.flush()
+    with tables.open_file(fout,'r+') as f:
+        g = f.create_group("/", "reduced", "Shapes from ellipsoidal volumes with reduced inertia tensor at chosen radii")
+        createandsavefields(f,g,ngroups,nbins,out,groups,chunksize,done=True)
+        f.root.reduced.r[:] = 10**a.logr
+        f.flush()
 
-print 'Calculations done for:'+fout
+    print 'Calculations using all particles done for '+fout
+
+if args.subhaloes:
+    print 'Doing subhaloes'
+    nbins = 2
+    a.setparams(fdir,snap, 0, [1.0,2.0], solid=False)
+    with sharedmem.MapReduce() as pool:
+        def work(i):
+            sl = slice (i, i + chunksize)
+            start, end, step = sl.indices(N)
+            return i,[a.getShapefromSubhalo(t,minmass=hubble*1e9) for t in groups[np.arange(start,end,step)]]
+        out = pool.map(work, range(0,N,chunksize))
+
+    with tables.open_file(fout,'r+') as f:
+        g = f.create_group("/", "subhaloes", "Reduced shapes from subhaloes")
+        createandsavefields(f,g,ngroups,nbins,out,groups,chunksize,done=True)
+        f.root.subhaloes.r[:] = 10**a.logr
+        f.flush()
+

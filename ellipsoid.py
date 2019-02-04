@@ -55,7 +55,7 @@ def ellipsoidfit(posold,rvir,rin,rout,mass=None,weighted=False,convcrit=1e-2,ret
 
     ### If too few particles, abort
         if len(posbin) <= 10:
-            if verbose: print "Too few particles in bin, rin,rout=",rin,rout
+            if verbose: print "Too few particles in bin: iter,N,rin,rout=",count,len(posbin),rin,rout,q,s
             return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
             exit=1
 
