@@ -143,7 +143,7 @@ if not args.subhaloes:
 
 #3: Do 3 particular ellipsoidal shells next: 10%, 15%, 20%, 50%, 100% R_200
     nbins = 5
-    a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0])
+    a.setparams(0, [0.1,0.15,0.3,0.5,1.0])
     with sharedmem.MapReduce() as pool:
         def work(i):
             sl = slice (i, i + chunksize)
@@ -158,7 +158,7 @@ if not args.subhaloes:
         f.flush()
 
 #4: Finally, do ellipsoidal volumes next: 10%, 15%, 20%, 50%, 100% R_200
-    a.setparams(fdir,snap, 0, [0.1,0.15,0.3,0.5,1.0],solid=True)
+    a.setparams(0, [0.1,0.15,0.3,0.5,1.0],useReduced=True)
     with sharedmem.MapReduce() as pool:
         def work(i):
             sl = slice (i, i + chunksize)
