@@ -17,6 +17,8 @@ from functools import partial
 #sys.path.append(os.path.join(os.path.dirname(__file__),"../code"))
 #sys.path.append('/n/home04/kchua/CODES/Shape/')
 import axial_ratios as ar
+filters = tables.Filters(complevel=1, complib='zlib',shuffle=True)
+
 
 #Parse arguments
 parser = argparse.ArgumentParser()
@@ -29,7 +31,7 @@ parser.add_argument("--nthreads", type=int, default=4, help="Number of threads f
 parser.add_argument("--test", action="store_true", help="Turn on testing mode")
 parser.add_argument("--subhaloes", action="store_true", help="Turn on shapes from subhaloes")
 parser.add_argument("--TNG", action="store_true", help="Use TNG dir? If this option is selected, supercedes --base")
-parser.add_argument("-b","--base", default='/n/ghernquist/Illustris/Runs/', help="Base directory. Default = /n/ghernquist/Illustris/Runs/")
+parser.add_argument("-b","--base", type=str, default='/n/ghernquist/Illustris/Runs/', help="Base directory. Default = /n/ghernquist/Illustris/Runs/")
 #parser.add_argument("-hu","--hubble", default=0.704, help="Hubble parameter H_0=100h")
 args = parser.parse_args()
 
@@ -41,6 +43,7 @@ if (args.t.find('TNG')>0) or (args.TNG):
     print args.t
     print args.TNG
     fbase = "/n/hernquistfs3/IllustrisTNG/Runs/"
+fbase = fbase if fbase[-1] == '/' else fbase+'/'
 fdir = fbase+args.t+'/'
 assert os.path.isdir(fdir),fdir+" does not exist!"
 
@@ -53,7 +56,8 @@ boxsize = header.boxsize
 hubble = header.hubble
 
 chunksize = args.chunksize
-ar.ellipsoid.ne.set_num_threads(args.nthreads)
+#ar.ellipsoid.ne.set_num_threads(args.nthreads)
+ar.ellipsoid.numba.config.NUMBA_NUM_THREADS = args.nthreads
 mass=[args.minmass,args.maxmass]
 if args.test:
     mass=[12,12.01]
@@ -86,11 +90,11 @@ print ' '
 def createandsavefields(f,g,ngroups,nbins,data,groups,chunksize,done=False):
     print 'Saving results!'
     r=f.create_carray(g,"r",tables.Float32Col(),(nbins,))
-    q=f.create_carray(g,"q",tables.Float32Col(),(ngroups,nbins))
-    s=f.create_carray(g,"s",tables.Float32Col(),(ngroups,nbins))
-    T=f.create_carray(g,"T",tables.Float32Col(),(ngroups,nbins))
-    n=f.create_carray(g,"n",tables.Int32Col(),(ngroups,nbins,2))
-    rotmat=f.create_carray(g,"RotMat",tables.Float32Col(),(ngroups,nbins,3,3))
+    q=f.create_carray(g,"q",tables.Float32Col(),(ngroups,nbins),filters=filters)
+    s=f.create_carray(g,"s",tables.Float32Col(),(ngroups,nbins),filters=filters)
+    T=f.create_carray(g,"T",tables.Float32Col(),(ngroups,nbins),filters=filters)
+    n=f.create_carray(g,"n",tables.Int32Col(),(ngroups,nbins,2),filters=filters)
+    rotmat=f.create_carray(g,"RotMat",tables.Float32Col(),(ngroups,nbins,3,3),filters=filters)
 
     N = len(groups)
     for i in range(0,N,chunksize):
@@ -118,9 +122,9 @@ def createandsavefields(f,g,ngroups,nbins,data,groups,chunksize,done=False):
 
 #1: Create and write useful information
 with tables.open_file(fout,'w') as f:
-    f.create_carray("/","GroupDone",tables.Int16Col(),(ngroups,))
-    f.create_carray("/","Group_R_Crit200",tables.Float32Col(),(ngroups,))
-    f.create_carray("/","Group_M_Crit200",tables.Float32Col(),(ngroups,))
+    f.create_carray("/","GroupDone",tables.Int16Col(),(ngroups,),filters=filters)
+    f.create_carray("/","Group_R_Crit200",tables.Float32Col(),(ngroups,),filters=filters)
+    f.create_carray("/","Group_M_Crit200",tables.Float32Col(),(ngroups,),filters=filters)
     f.root.Group_M_Crit200[:] = a.cat.Group_M_Crit200
     f.root.Group_R_Crit200[:] = a.cat.Group_R_Crit200
     f.flush()

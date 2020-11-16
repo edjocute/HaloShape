@@ -14,8 +14,8 @@ import utils
 
 class AxialRatio:
     def __init__(self,catdir,snapnum,nbins,rmin=1e-2,rmax=1.,useSubhaloID=False,\
-            useFOF=False, useStellarhalfmassRad=None, useReduced=False, \
-            NR=False, binwidth=0.1, debug=False, useSubhaloes=False, testconvergence=False):
+            useFOF=False, useStellarhalfmassRad=None, useReduced=False, radinkpc=False,\
+            NR=False, binwidth=0.1, debug=False, useSubhaloes=False, testconvergence=False,):
 
         assert type(nbins) is int and nbins >= 0, 'parameter nbins must be int'
 
@@ -27,6 +27,7 @@ class AxialRatio:
         self.snapnum = snapnum
         self.useSubhaloID = useSubhaloID
         self.useStellarhalfmassRad = False
+        self.radinkpc = radinkpc
         print '\n\tAxialRatio: ',self.snapdir
 
         # Read snapshot header for boxsize
@@ -218,8 +219,12 @@ class AxialRatio:
             elif pos == 0:
                 return None
 
-        # Normalize positions by chosen radius
-        pos/=rad
+        if self.radinkpc is True:
+            pos/=self.header.hubble
+        else:
+            # Normalize positions by chosen radius
+            pos/=rad
+
         if self.testconvergence is not False:
             assert type(self.testconvergence) is float
 

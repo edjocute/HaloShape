@@ -32,6 +32,7 @@ import numba
 @jit
 def computeeigen(posbin, massbin, a2):
 
+        #print('Length a2 = {}'.format(a2 if a2 is 1 else len(a2)))
         ### Calculate shape tensor
         M=np.zeros([3,3])
         for i in np.arange(3):
@@ -67,7 +68,7 @@ def computeeigen(posbin, massbin, a2):
 
         return E,V,M
 
-@jit(parallel=True)
+#@jit(parallel=True)
 def fastdot(R,X):
     return np.dot(R,X.T).T
     #for i in numba.prange(len(X)):
@@ -90,7 +91,7 @@ def restrict(pos, rout):
     return pos[sel], sel
 
 def ellipsoidfit(posold, rvir, rin, rout, mass=None, weighted=False,\
-        convcrit=1e-2, maxiter=150, verbose=False, returnall=False):
+        convcrit=5e-3, maxiter=150, verbose=False, returnall=False):
 
     ###Initialize values###
     pos,sel = restrict(posold,rout)
@@ -112,16 +113,13 @@ def ellipsoidfit(posold, rvir, rin, rout, mass=None, weighted=False,\
     #    rin = 1e-10
 
     a2 = 1
-    massbin = 1
-    posbin = 0
     for it in xrange(maxiter):
 
         q,s = qall[it],sall[it]
         axe = axes[it]
         ### Restrict to particles of required radii
         d2, sel,posbin = getbin(pos, q, s, rin, rout)
-        if mass is not None:
-            massbin = mass[sel]
+        massbin = 1 if mass is None else mass[sel]
         lenbin = len(posbin)
 
         #meanpos = np.average(posbin,axis=0)
@@ -140,14 +138,16 @@ def ellipsoidfit(posold, rvir, rin, rout, mass=None, weighted=False,\
             #pb0,pb1,pb2 = posbin[:,0],posbin[:,1],posbin[:,2]
             #a2 = ne.evaluate("pb0**2 + (pb1/q)**2 + (pb2/s) **2")
             a2 = d2[sel]
-
-
+        else:
+            a2 = 1
         eigen = computeeigen(posbin, massbin, a2)
         if eigen is -1:
             return -1.,-1.,0, np.zeros((3,3)),np.count_nonzero(d2< (rin**2))
 
         E,V,M = eigen
         rotmat = V.T
+        #rotmat[rotmat[:,0] < 0] *= -1
+        #print rotmat
         ## The actual rotation matrix is the transpose of V
         ## because the transformation should be:
         ## I'= R I R.T
@@ -164,7 +164,7 @@ def ellipsoidfit(posold, rvir, rin, rout, mass=None, weighted=False,\
         ## Stop iterations if eigenvalues are too small, else imaginary values can be produced
         if qall[it+1] < 1e-2:
             print 'eigenvalues are too close to zero, stopping iteration'
-            print '\trvir =', rvir
+            #print '\trvir =', rvir
             print '\titer, eigenvalues =',it, E
             print '\tS_ij =',M
 
@@ -400,6 +400,7 @@ def test(N=1000,h=0.1,R=1.,q=1.,s=1.,phi=0.,theta=0.,weighted=False,maxiter=150,
         rdot = [out[3][:,i].dot(Rtot[:,i]) for i in range(3)]
         print 'dot product of axes:',rdot
 	print ''
+	return pos
 
 if __name__=="__main__":
     import argparse
